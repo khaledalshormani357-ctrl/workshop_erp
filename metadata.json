@@ -1,0 +1,6 @@
+{
+  "name": "Workshop ERP",
+  "description": "Aluminium & Steel Workshop Management System - Offline-First, Multi-Tenant, Double-Entry Accounting & Manufacturing",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
