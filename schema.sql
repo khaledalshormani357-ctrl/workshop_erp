@@ -83,6 +83,24 @@ CREATE TABLE IF NOT EXISTS measurement_versions (
 
 CREATE INDEX IF NOT EXISTS idx_measurement_versions_measurement ON measurement_versions(measurement_id);
 
+-- جدول صور القياسات
+CREATE TABLE IF NOT EXISTS measurement_images (
+  id TEXT PRIMARY KEY NOT NULL,
+  tenant_id TEXT NOT NULL,
+  measurement_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_name TEXT,
+  mime_type TEXT,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  uploaded_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  sync_status TEXT NOT NULL DEFAULT 'pending',
+  sync_version INTEGER NOT NULL DEFAULT 1,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  FOREIGN KEY (measurement_id) REFERENCES measurements(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_measurement_images_measurement ON measurement_images(tenant_id, measurement_id);
+
 -- ============================================================
 -- QUOTATIONS
 -- ============================================================
@@ -108,7 +126,8 @@ CREATE TABLE IF NOT EXISTS quotations (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   deleted_at TEXT,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
-  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+  UNIQUE(tenant_id, quotation_number)
 );
 
 CREATE INDEX IF NOT EXISTS idx_quotations_tenant_customer ON quotations(tenant_id, customer_id);
