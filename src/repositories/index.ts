@@ -14,4 +14,5 @@ export * from './SalesRepository';
 export * from './PurchasesRepository';
 export * from './PaymentsRepository';
 export * from './AccountingRepository';
+export * from './ManufacturingRepository';
 

@@ -256,6 +256,20 @@ export class JournalEntriesRepository {
     });
   }
 
+  async post(entryId: string, postedBy: string = 'system'): Promise<JournalEntry> {
+    await this.postEntry(entryId, postedBy);
+    const entry = await this.findById(entryId);
+    if (!entry) {
+      throw new Error(`ENTRY_NOT_FOUND_AFTER_POST: ${entryId}`);
+    }
+    return entry;
+  }
+
+  async createAndPost(input: CreateJournalEntryInput, postedBy: string = 'system'): Promise<JournalEntry> {
+    const draft = await this.createDraft(input);
+    return await this.post(draft.id, postedBy);
+  }
+
   async reverseEntry(entryId: string, reason: string, reversedBy: string): Promise<JournalEntry> {
     return await this.db.transaction(async () => {
       const tenantId = this.db.getTenantId();
@@ -315,7 +329,8 @@ export class JournalEntriesRepository {
         [reversalId, tenantId, entryId, reversal.id, reason ?? null, now, reversedBy]
       );
 
-      return reversal;
+      const postedReversal = await this.findById(reversal.id);
+      return postedReversal || reversal;
     });
   }
 

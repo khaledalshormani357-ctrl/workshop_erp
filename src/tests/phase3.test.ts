@@ -241,7 +241,8 @@ describe('Phase 3: Inventory + Sales + Purchases Unit Tests', () => {
         name: 'Main Workshop Safe',
         name_ar: 'خزينة الورشة الرئيسية',
         account_type: 'cash',
-        balance: 1000
+        balance: 1000,
+        is_active: 1
       });
 
       // Customer Payment (Income) +$500

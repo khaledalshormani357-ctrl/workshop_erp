@@ -277,4 +277,89 @@ describe('Accounting Engine Unit Tests', () => {
       expect(updateEvent!.local_id).toBe(entry.id);
     });
   });
+
+  describe('Pure Engine Unit Tests', () => {
+    it('computeAccountBalances should preserve negative balances and correct normal balance direction', async () => {
+      const { AccountingEngine } = await import('../services/accountingEngine');
+      const accounts: any[] = [
+        { id: 'acc-1', code: '1010', name: 'Cash', type: 'asset', balance: 0 },
+        { id: 'acc-2', code: '2010', name: 'Payables', type: 'liability', balance: 0 },
+        { id: 'acc-3', code: '3010', name: 'Equity', type: 'equity', balance: 0 }
+      ];
+
+      // Entries causing overdrawn cash (negative balance for asset)
+      const entries: any[] = [
+        {
+          id: 'e-1',
+          status: 'posted',
+          lines: [
+            { account_id: 'acc-1', debit: 1000, credit: 3000 }, // net = -2000
+            { account_id: 'acc-2', debit: 4000, credit: 1000 }, // net = -3000 (liability debited more than credited)
+            { account_id: 'acc-3', debit: 0, credit: 5000 },    // net = +5000 (equity credited)
+          ]
+        }
+      ];
+
+      const computed = AccountingEngine.computeAccountBalances(accounts, entries);
+      const cash = computed.find(a => a.id === 'acc-1');
+      const payables = computed.find(a => a.id === 'acc-2');
+      const equity = computed.find(a => a.id === 'acc-3');
+
+      expect(cash!.balance).toBe(-2000); // Raw negative balance preserved!
+      expect(payables!.balance).toBe(-3000); // Liability negative balance preserved!
+      expect(equity!.balance).toBe(5000);
+    });
+
+    it('computeStockSummary should accurately calculate WAC across sequential stock in and out movements', async () => {
+      const { InventoryEngine } = await import('../services/inventoryEngine');
+      const products: any[] = [
+        {
+          id: 'prod-alum',
+          name: 'Aluminium Bar 6m',
+          sku: 'AL-6M',
+          unit_cost: 100,
+          min_stock: 5,
+          cost_method: 'weighted_average'
+        }
+      ];
+
+      const movements: any[] = [
+        // 1. First Inbound: 10 units @ $100 -> Total $1000, avgCost $100
+        {
+          id: 'mov-1',
+          product_id: 'prod-alum',
+          direction: 'in',
+          quantity: 10,
+          unit_cost: 100,
+          created_at: '2026-08-01T10:00:00Z'
+        },
+        // 2. Second Inbound: 10 units @ $200 -> Total $3000 / 20 units -> avgCost $150
+        {
+          id: 'mov-2',
+          product_id: 'prod-alum',
+          direction: 'in',
+          quantity: 10,
+          unit_cost: 200,
+          created_at: '2026-08-02T10:00:00Z'
+        },
+        // 3. Outbound: 5 units out @ $150 -> 15 units remaining, avgCost remains $150, totalValue = $2250
+        {
+          id: 'mov-3',
+          product_id: 'prod-alum',
+          direction: 'out',
+          quantity: 5,
+          unit_cost: 150,
+          created_at: '2026-08-03T10:00:00Z'
+        }
+      ];
+
+      const summary = InventoryEngine.computeStockSummary(products, movements);
+      expect(summary.length).toBe(1);
+      expect(summary[0].physicalQty).toBe(15);
+      expect(summary[0].averageCost).toBe(150);
+      expect(summary[0].totalValue).toBe(2250);
+      expect(summary[0].isLowStock).toBe(false);
+    });
+  });
 });
+

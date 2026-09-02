@@ -10,21 +10,36 @@ export class CustomersRepository extends BaseRepository<CustomerEntity> {
     super('customers');
   }
 
-  async create(customer: Omit<CustomerEntity, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>): Promise<CustomerEntity> {
+  async create(customer: {
+    code?: string;
+    name: string;
+    name_ar?: string;
+    phone?: string;
+    email?: string | null;
+    address?: string | null;
+    tax_id?: string | null;
+    tax_number?: string | null;
+    type?: string;
+    credit_limit?: number;
+    current_balance?: number;
+    notes?: string | null;
+    is_active?: number;
+  }): Promise<CustomerEntity> {
     const id = this.generateUUID();
     const tenantId = this.getTenantId();
     const now = new Date().toISOString();
+    const code = customer.code || `CUST-${Date.now().toString().slice(-4)}`;
 
     const entity: CustomerEntity = {
       id,
       tenant_id: tenantId,
-      code: customer.code,
+      code,
       name: customer.name,
-      name_ar: customer.name_ar,
-      phone: customer.phone,
+      name_ar: customer.name_ar || customer.name,
+      phone: customer.phone || '0000000000',
       email: customer.email || null,
       address: customer.address || null,
-      tax_id: customer.tax_id || null,
+      tax_id: customer.tax_id || customer.tax_number || null,
       credit_limit: customer.credit_limit || 0,
       current_balance: customer.current_balance || 0,
       notes: customer.notes || null,
@@ -116,22 +131,37 @@ export class SuppliersRepository extends BaseRepository<SupplierEntity> {
     super('suppliers');
   }
 
-  async create(supplier: Omit<SupplierEntity, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>): Promise<SupplierEntity> {
+  async create(supplier: {
+    code?: string;
+    name: string;
+    name_ar?: string;
+    company_name?: string | null;
+    phone?: string;
+    email?: string | null;
+    address?: string | null;
+    tax_id?: string | null;
+    tax_number?: string | null;
+    category?: SupplierCategory;
+    current_balance?: number;
+    notes?: string | null;
+    is_active?: number;
+  }): Promise<SupplierEntity> {
     const id = this.generateUUID();
     const tenantId = this.getTenantId();
     const now = new Date().toISOString();
+    const code = supplier.code || `SUPP-${Date.now().toString().slice(-4)}`;
 
     const entity: SupplierEntity = {
       id,
       tenant_id: tenantId,
-      code: supplier.code,
+      code,
       name: supplier.name,
-      name_ar: supplier.name_ar,
+      name_ar: supplier.name_ar || supplier.name,
       company_name: supplier.company_name || null,
-      phone: supplier.phone,
+      phone: supplier.phone || '0000000000',
       email: supplier.email || null,
       address: supplier.address || null,
-      tax_id: supplier.tax_id || null,
+      tax_id: supplier.tax_id || supplier.tax_number || null,
       current_balance: supplier.current_balance || 0,
       category: supplier.category || 'aluminium',
       notes: supplier.notes || null,

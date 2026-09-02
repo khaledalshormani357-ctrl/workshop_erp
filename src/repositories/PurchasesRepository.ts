@@ -57,7 +57,7 @@ export class PurchasesRepository {
     const tenantId = this.db.getTenantId();
     const year = new Date().getFullYear();
     const prefix = `PO-${year}-`;
-    const last = await this.db.queryOne<{ order_number: string; po_number: string }>(
+    const last = await this.db.queryOne<{ num: string }>(
       `SELECT COALESCE(order_number, po_number) as num FROM purchase_orders WHERE tenant_id = ? AND (order_number LIKE ? OR po_number LIKE ?) ORDER BY created_at DESC LIMIT 1`,
       [tenantId, `${prefix}%`, `${prefix}%`]
     );
@@ -184,8 +184,8 @@ export class PurchasesRepository {
             line.quantity_received,
             line.unit_price,
             line.unit_price,
-            line.tax_rate,
-            (line.quantity * line.unit_price * line.tax_rate),
+            line.tax_rate || 0,
+            (line.quantity * line.unit_price * (line.tax_rate || 0)),
             (line.quantity * line.unit_price),
             line.total,
             line.line_order,
@@ -451,6 +451,23 @@ export class PurchasesRepository {
       await this.outboxRepo.queueSync('supplier_invoices', id, 'UPDATE', updated);
       return updated;
     });
+  }
+
+  // Aliases for compatibility
+  async findOrderById(id: string): Promise<(PurchaseOrder & { lines: PurchaseOrderLine[] }) | null> {
+    return this.findPurchaseOrderById(id);
+  }
+
+  async getOrderLines(orderId: string): Promise<PurchaseOrderLine[]> {
+    const tenantId = this.db.getTenantId();
+    return this.db.query<PurchaseOrderLine>(
+      `SELECT * FROM purchase_order_lines WHERE purchase_order_id = ? AND tenant_id = ? ORDER BY line_order ASC`,
+      [orderId, tenantId]
+    );
+  }
+
+  async updateOrderStatus(id: string, status: PurchaseOrderStatus): Promise<boolean> {
+    return this.updatePurchaseOrderStatus(id, status);
   }
 }
 

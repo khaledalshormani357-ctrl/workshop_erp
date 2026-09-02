@@ -25,6 +25,7 @@ class WebSQLiteDriver implements ISQLiteDriver {
   private dbName = 'workshop_erp.db';
   private tables: Map<string, Map<string, Record<string, any>>> = new Map();
   private inTransaction = false;
+  private transactionDepth = 0;
   private transactionSnapshot: string | null = null;
 
   async open(databaseName: string): Promise<void> {
@@ -77,24 +78,34 @@ class WebSQLiteDriver implements ISQLiteDriver {
   }
 
   async beginTransaction(): Promise<void> {
-    if (this.inTransaction) throw new Error('Transaction already in progress');
-    this.inTransaction = true;
-    const snapshot: Record<string, any[]> = {};
-    this.tables.forEach((rows, tableName) => {
-      snapshot[tableName] = Array.from(rows.values()).map((r) => ({ ...r }));
-    });
-    this.transactionSnapshot = JSON.stringify(snapshot);
+    if (this.transactionDepth === 0) {
+      this.inTransaction = true;
+      const snapshot: Record<string, any[]> = {};
+      this.tables.forEach((rows, tableName) => {
+        snapshot[tableName] = Array.from(rows.values()).map((r) => ({ ...r }));
+      });
+      this.transactionSnapshot = JSON.stringify(snapshot);
+    }
+    this.transactionDepth++;
   }
 
   async commitTransaction(): Promise<void> {
-    if (!this.inTransaction) return;
-    this.inTransaction = false;
-    this.transactionSnapshot = null;
-    this.saveToStorage();
+    if (this.transactionDepth <= 0) return;
+    this.transactionDepth--;
+    if (this.transactionDepth === 0) {
+      this.inTransaction = false;
+      this.transactionSnapshot = null;
+      this.saveToStorage();
+    }
   }
 
   async rollbackTransaction(): Promise<void> {
-    if (!this.inTransaction || !this.transactionSnapshot) return;
+    if (this.transactionDepth <= 0 || !this.transactionSnapshot) {
+      this.transactionDepth = 0;
+      this.inTransaction = false;
+      this.transactionSnapshot = null;
+      return;
+    }
     try {
       const data = JSON.parse(this.transactionSnapshot) as Record<string, any[]>;
       this.tables.clear();
@@ -107,6 +118,7 @@ class WebSQLiteDriver implements ISQLiteDriver {
         this.tables.set(tableName, rowMap);
       }
     } finally {
+      this.transactionDepth = 0;
       this.inTransaction = false;
       this.transactionSnapshot = null;
     }
@@ -162,18 +174,34 @@ class WebSQLiteDriver implements ISQLiteDriver {
     }
 
     // 4. INSERT INTO statements
-    const insertMatch = trimmed.match(/^INSERT\s+INTO\s+([a-zA-Z0-9_]+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i);
+    const insertMatch = trimmed.match(/^INSERT\s+INTO\s+([a-zA-Z0-9_]+)\s*\(([\s\S]+?)\)\s*VALUES\s*\(([\s\S]+?)\)$/i);
     if (insertMatch) {
       const tableName = insertMatch[1];
       const columns = insertMatch[2].split(',').map((c) => c.trim());
+      const valueTokens = insertMatch[3].split(',').map((v) => v.trim());
+
       if (!this.tables.has(tableName)) {
         this.tables.set(tableName, new Map());
       }
       const table = this.tables.get(tableName)!;
 
       const record: Record<string, any> = {};
+      let paramIdx = 0;
+
       columns.forEach((col, idx) => {
-        record[col] = params[idx] !== undefined ? params[idx] : null;
+        const valToken = valueTokens[idx];
+        if (valToken === '?') {
+          record[col] = params[paramIdx] !== undefined ? params[paramIdx] : null;
+          paramIdx++;
+        } else if (valToken) {
+          let cleanVal: any = valToken.replace(/^['"]|['"]$/g, '');
+          if (valToken.toUpperCase() === 'NULL') cleanVal = null;
+          else if (!isNaN(Number(cleanVal)) && cleanVal !== '') cleanVal = Number(cleanVal);
+          record[col] = cleanVal;
+        } else {
+          record[col] = params[paramIdx] !== undefined ? params[paramIdx] : null;
+          paramIdx++;
+        }
       });
 
       if (!record.created_at) {
@@ -202,18 +230,53 @@ class WebSQLiteDriver implements ISQLiteDriver {
       // Parse SET fields
       const setPairs = setClause.split(',').map((p) => p.trim());
       let paramIndex = 0;
-      const updates: { col: string; val: any }[] = [];
+      const updates: { col: string; type: 'assign' | 'add' | 'sub'; val: any }[] = [];
 
       for (const pair of setPairs) {
-        const [col] = pair.split('=').map((s) => s.trim());
-        updates.push({ col, val: params[paramIndex++] });
+        const [col, rawRhs] = pair.split('=').map((s) => s.trim());
+        const rhs = rawRhs || '';
+
+        if (rhs.includes('+')) {
+          const parts = rhs.split('+').map((s) => s.trim());
+          const rightOperand = parts[1];
+          if (rightOperand === '?') {
+            updates.push({ col, type: 'add', val: params[paramIndex++] });
+          } else {
+            const num = parseFloat(rightOperand);
+            updates.push({ col, type: 'add', val: isNaN(num) ? 0 : num });
+          }
+        } else if (rhs.includes('-')) {
+          const parts = rhs.split('-').map((s) => s.trim());
+          const rightOperand = parts[1];
+          if (rightOperand === '?') {
+            updates.push({ col, type: 'sub', val: params[paramIndex++] });
+          } else {
+            const num = parseFloat(rightOperand);
+            updates.push({ col, type: 'sub', val: isNaN(num) ? 0 : num });
+          }
+        } else if (rhs === '?') {
+          updates.push({ col, type: 'assign', val: params[paramIndex++] });
+        } else {
+          let cleanVal: any = rhs.replace(/^['"]|['"]$/g, '');
+          if (rhs.toUpperCase() === 'NULL') cleanVal = null;
+          else if (!isNaN(Number(cleanVal)) && cleanVal !== '') cleanVal = Number(cleanVal);
+          updates.push({ col, type: 'assign', val: cleanVal });
+        }
       }
+
+      const whereParams = params.slice(paramIndex);
 
       let changes = 0;
       table.forEach((row, key) => {
-        if (this.evaluateWhere(whereClause, row, params.slice(paramIndex))) {
+        if (this.evaluateWhere(whereClause, row, whereParams)) {
           updates.forEach((u) => {
-            row[u.col] = u.val;
+            if (u.type === 'assign') {
+              row[u.col] = u.val;
+            } else if (u.type === 'add') {
+              row[u.col] = (Number(row[u.col]) || 0) + Number(u.val);
+            } else if (u.type === 'sub') {
+              row[u.col] = (Number(row[u.col]) || 0) - Number(u.val);
+            }
           });
           row.updated_at = new Date().toISOString();
           table.set(key, { ...row });
@@ -330,26 +393,26 @@ class WebSQLiteDriver implements ISQLiteDriver {
     }
 
     let paramIdx = 0;
-    // Replace '?' placeholders in where clause with parameter values for safe evaluation
-    // Simple evaluator for standard patterns like "tenant_id = ? AND is_active = ?"
     const conditions = whereClause.split(/\s+AND\s+/i);
 
     for (const cond of conditions) {
-      const isNullMatch = cond.match(/^([a-zA-Z0-9_]+)\s+IS\s+NULL$/i);
+      const trimmedCond = cond.trim();
+
+      const isNullMatch = trimmedCond.match(/^([a-zA-Z0-9_]+)\s+IS\s+NULL$/i);
       if (isNullMatch) {
         const col = isNullMatch[1];
         if (row[col] !== null && row[col] !== undefined) return false;
         continue;
       }
 
-      const isNotNullMatch = cond.match(/^([a-zA-Z0-9_]+)\s+IS\s+NOT\s+NULL$/i);
+      const isNotNullMatch = trimmedCond.match(/^([a-zA-Z0-9_]+)\s+IS\s+NOT\s+NULL$/i);
       if (isNotNullMatch) {
         const col = isNotNullMatch[1];
         if (row[col] === null || row[col] === undefined) return false;
         continue;
       }
 
-      const eqMatch = cond.match(/^([a-zA-Z0-9_]+)\s*=\s*\?$/);
+      const eqMatch = trimmedCond.match(/^([a-zA-Z0-9_]+)\s*=\s*\?$/);
       if (eqMatch) {
         const col = eqMatch[1];
         const targetVal = params[paramIdx++];
@@ -357,11 +420,58 @@ class WebSQLiteDriver implements ISQLiteDriver {
         continue;
       }
 
-      const inMatch = cond.match(/^([a-zA-Z0-9_]+)\s+IN\s*\(([^)]+)\)$/i);
+      const notEqMatch = trimmedCond.match(/^([a-zA-Z0-9_]+)\s*(!=|<>)\s*\?$/);
+      if (notEqMatch) {
+        const col = notEqMatch[1];
+        const targetVal = params[paramIdx++];
+        if (row[col] === targetVal) return false;
+        continue;
+      }
+
+      const eqLiteralMatch = trimmedCond.match(/^([a-zA-Z0-9_]+)\s*=\s*['"]?([^'"]+)['"]?$/);
+      if (eqLiteralMatch && eqLiteralMatch[2] !== '?') {
+        const col = eqLiteralMatch[1];
+        let litVal: any = eqLiteralMatch[2];
+        if (litVal === '1') litVal = 1;
+        else if (litVal === '0') litVal = 0;
+        else if (litVal === 'true') litVal = true;
+        else if (litVal === 'false') litVal = false;
+        if (row[col] !== litVal && String(row[col]) !== String(litVal)) return false;
+        continue;
+      }
+
+      const notEqLiteralMatch = trimmedCond.match(/^([a-zA-Z0-9_]+)\s*(!=|<>)\s*['"]?([^'"]+)['"]?$/);
+      if (notEqLiteralMatch && notEqLiteralMatch[3] !== '?') {
+        const col = notEqLiteralMatch[1];
+        let litVal: any = notEqLiteralMatch[3];
+        if (row[col] === litVal || String(row[col]) === String(litVal)) return false;
+        continue;
+      }
+
+      const inMatch = trimmedCond.match(/^([a-zA-Z0-9_]+)\s+IN\s*\(([^)]+)\)$/i);
       if (inMatch) {
         const col = inMatch[1];
         const allowedVals = inMatch[2].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, ''));
         if (!allowedVals.includes(String(row[col]))) return false;
+        continue;
+      }
+
+      const orLikeMatch = trimmedCond.match(/^\((.+)\)$/);
+      if (orLikeMatch) {
+        const orClauses = orLikeMatch[1].split(/\s+OR\s+/i);
+        let anyMatch = false;
+        for (const orCond of orClauses) {
+          const likeMatch = orCond.match(/^([a-zA-Z0-9_]+)\s+LIKE\s+\?$/i);
+          if (likeMatch) {
+            const col = likeMatch[1];
+            const pattern = String(params[paramIdx++] || '').replace(/%/g, '').toLowerCase();
+            const val = String(row[col] || '').toLowerCase();
+            if (val.includes(pattern)) {
+              anyMatch = true;
+            }
+          }
+        }
+        if (!anyMatch) return false;
         continue;
       }
     }

@@ -59,9 +59,9 @@ export class StockRepository {
         quantity: input.quantity,
         unit_cost: unitCost,
         total_cost: totalCost,
-        reference_entity: input.reference_entity || input.reference_type || null,
-        reference_id: input.reference_id || null,
-        notes: input.notes || null,
+        reference_entity: input.reference_entity || input.reference_type || undefined,
+        reference_id: input.reference_id || undefined,
+        notes: input.notes || undefined,
         created_by: input.created_by || 'system',
         sync_status: 'pending',
         sync_version: 1,
@@ -108,6 +108,28 @@ export class StockRepository {
 
       return movement;
     });
+  }
+
+  /**
+   * Alias for recordMovement for compatibility
+   */
+  async create(input: {
+    id?: string;
+    product_id: string;
+    warehouse_id: string;
+    movement_type?: StockMovementType;
+    type?: StockMovementType;
+    direction: StockDirection;
+    quantity: number;
+    unit_cost?: number;
+    total_cost?: number;
+    reference_entity?: string | null;
+    reference_type?: string | null;
+    reference_id?: string | null;
+    notes?: string | null;
+    created_by?: string;
+  }): Promise<StockMovement> {
+    return this.recordMovement(input);
   }
 
   /**
@@ -192,7 +214,7 @@ export class StockRepository {
   }
 
   async getProductStockBalance(productId: string): Promise<{ onHand: number; reserved: number; available: number; wacUnitCost: number; totalValue: number }> {
-    const balance = await this.getTotalProductBalance(productId);
+    const balance = await this.getBalance(productId);
     if (!balance) {
       return { onHand: 0, reserved: 0, available: 0, wacUnitCost: 0, totalValue: 0 };
     }

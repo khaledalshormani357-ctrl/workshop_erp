@@ -106,6 +106,10 @@ export class ChartOfAccountsRepository {
     };
   }
 
+  async list(type?: AccountType): Promise<ChartOfAccount[]> {
+    return this.listByType(type);
+  }
+
   async listByType(type?: AccountType): Promise<ChartOfAccount[]> {
     const tenantId = this.db.getTenantId();
     let sql = `SELECT id, tenant_id, code, name, name_ar, type, nature, parent_id,

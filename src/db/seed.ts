@@ -25,8 +25,11 @@ export const standardChartOfAccounts: SeedAccount[] = [
       { code: '10100', name: 'Cash', name_ar: 'الصندوق', type: 'asset', nature: 'debit', is_postable: true },
       { code: '10200', name: 'Bank Accounts', name_ar: 'البنوك', type: 'asset', nature: 'debit', is_postable: true },
       { code: '10300', name: 'Accounts Receivable', name_ar: 'العملاء (ذمم مدينة)', type: 'asset', nature: 'debit', is_postable: true },
-      { code: '10400', name: 'Raw Materials Inventory', name_ar: 'مخزون المواد الخام', type: 'asset', nature: 'debit', is_postable: true },
-      { code: '10500', name: 'Finished Goods Inventory', name_ar: 'مخزون البضاعة التامة', type: 'asset', nature: 'debit', is_postable: true },
+      { code: '10310', name: 'Raw Materials Inventory', name_ar: 'مخزون المواد الخام', type: 'asset', nature: 'debit', is_postable: true },
+      { code: '10320', name: 'Work in Progress Inventory', name_ar: 'بضاعة تحت التشغيل والتصنيع (WIP)', type: 'asset', nature: 'debit', is_postable: true },
+      { code: '10330', name: 'Finished Goods Inventory', name_ar: 'مخزون البضاعة التامة المصنعة', type: 'asset', nature: 'debit', is_postable: true },
+      { code: '10400', name: 'Raw Materials Inventory General', name_ar: 'مخزون المواد الخام العام', type: 'asset', nature: 'debit', is_postable: true },
+      { code: '10500', name: 'Finished Goods Inventory General', name_ar: 'مخزون البضاعة التامة العام', type: 'asset', nature: 'debit', is_postable: true },
       { code: '10600', name: 'Fixed Assets', name_ar: 'الأصول الثابتة', type: 'asset', nature: 'debit', is_postable: false },
     ]
   },

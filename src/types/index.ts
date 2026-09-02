@@ -442,4 +442,42 @@ export interface ClarificationAnswer {
   proposed_answer: string;
   proposed_answer_ar: string;
   status: 'recommended' | 'confirmed' | 'customized';
+  category?: string;
 }
+
+export interface Project {
+  id: string;
+  tenant_id: string;
+  project_code: string;
+  name: string;
+  name_ar: string;
+  customer_id: string;
+  location: string;
+  status: 'planning' | 'active' | 'in_progress' | 'completed' | 'on_hold';
+  start_date: string;
+  end_date?: string;
+  total_contract_value: number;
+  notes?: string;
+  created_at: string;
+}
+
+export interface MeasurementRecord {
+  id: string;
+  tenant_id: string;
+  project_id?: string;
+  customer_id?: string;
+  tag_number: string;
+  location_name: string;
+  location_name_ar: string;
+  product_type: 'sliding_window' | 'hinged_window' | 'sliding_door' | 'hinged_door' | 'handrail' | 'custom' | string;
+  width: number; // in cm
+  height: number; // in cm
+  depth?: number; // in cm
+  quantity: number;
+  color: string;
+  glass_spec: string;
+  status: 'draft' | 'verified' | 'converted_to_bom';
+  notes?: string;
+  created_at: string;
+}
+

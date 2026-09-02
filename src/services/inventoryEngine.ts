@@ -6,45 +6,70 @@ export interface ProductStockSummary {
   reservedQty: number;
   availableQty: number;
   totalValue: number;
+  averageCost?: number;
   isLowStock: boolean;
 }
 
 export class InventoryEngine {
   /**
-   * Derives stock balances exclusively from immutable stock movements.
-   * No direct editing of quantity is allowed.
+   * Derives stock balances and accurate inventory valuation exclusively from immutable stock movements.
+   * Uses Weighted Average Cost (WAC) tracking chronologically by movement, or product standard cost if specified.
    */
   static computeStockSummary(
     products: Product[],
     movements: StockMovement[],
     reservedMap: Record<string, number> = {}
   ): ProductStockSummary[] {
-    const balanceMap: Record<string, { qty: number; totalCost: number }> = {};
+    // Sort movements chronologically to calculate accurate running WAC
+    const sortedMovements = [...movements].sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeA - timeB;
+    });
 
-    for (const mov of movements) {
+    const balanceMap: Record<string, { qty: number; avgCost: number; totalCost: number }> = {};
+
+    for (const mov of sortedMovements) {
       if (!balanceMap[mov.product_id]) {
-        balanceMap[mov.product_id] = { qty: 0, totalCost: 0 };
+        balanceMap[mov.product_id] = { qty: 0, avgCost: 0, totalCost: 0 };
       }
       const item = balanceMap[mov.product_id];
-      const sign = mov.direction === 'in' ? 1 : -1;
-      const qtyChange = mov.quantity * sign;
+      const movementQty = Number(mov.quantity) || 0;
+      const movementCost = Number(mov.unit_cost) || 0;
 
-      item.qty += qtyChange;
       if (mov.direction === 'in') {
-        item.totalCost += mov.quantity * mov.unit_cost;
+        const prevTotalCost = item.qty > 0 ? item.totalCost : 0;
+        const incomingCost = movementQty * movementCost;
+        const newQty = item.qty + movementQty;
+        item.qty = newQty;
+        item.avgCost = newQty > 0 ? (prevTotalCost + incomingCost) / newQty : movementCost;
+        item.totalCost = item.qty * item.avgCost;
       } else {
-        // Reduced weighted average value
-        item.totalCost = Math.max(0, item.totalCost - mov.quantity * mov.unit_cost);
+        // Out movement reduces quantity at the current weighted average cost
+        const newQty = Math.max(0, item.qty - movementQty);
+        item.qty = newQty;
+        item.totalCost = item.qty * item.avgCost;
       }
     }
 
     return products.map((prod) => {
-      const summary = balanceMap[prod.id] || { qty: 0, totalCost: 0 };
-      const physicalQty = Math.max(0, summary.qty);
+      const summary = balanceMap[prod.id];
+      const physicalQty = summary ? Math.max(0, summary.qty) : 0;
       const reservedQty = reservedMap[prod.id] || 0;
       const availableQty = Math.max(0, physicalQty - reservedQty);
-      const totalValue = physicalQty * prod.unit_cost;
-      const isLowStock = physicalQty <= prod.min_stock;
+
+      const costMethod = (prod as any).cost_method || (prod as any).costing_method || 'weighted_average';
+      const avgCost = summary && summary.qty > 0 ? summary.avgCost : (prod.unit_cost || 0);
+
+      let totalValue = 0;
+      if (costMethod === 'standard') {
+        totalValue = physicalQty * (prod.unit_cost || 0);
+      } else {
+        // Weighted average cost method
+        totalValue = summary && summary.qty > 0 ? summary.totalCost : physicalQty * avgCost;
+      }
+
+      const isLowStock = physicalQty <= (prod.min_stock ?? (prod as any).min_stock_level ?? 0);
 
       return {
         product: prod,
@@ -52,6 +77,7 @@ export class InventoryEngine {
         reservedQty,
         availableQty,
         totalValue,
+        averageCost: avgCost,
         isLowStock,
       };
     });

@@ -19,6 +19,8 @@ import {
   AuditLog,
   SyncOutboxItem,
   ClarificationAnswer,
+  Project,
+  MeasurementRecord,
 } from '../types';
 
 import {
@@ -41,6 +43,8 @@ import {
   initialSyncOutbox,
   initialAuditLogs,
   initialClarifications,
+  initialProjects,
+  initialMeasurements,
 } from './seedData';
 
 const STORAGE_PREFIX = 'workshop_erp_phase0_';
@@ -59,6 +63,8 @@ export interface AppState {
   quotations: Quotation[];
   salesInvoices: SalesInvoice[];
   purchaseOrders: PurchaseOrder[];
+  projects: Project[];
+  measurements: MeasurementRecord[];
   boms: BillOfMaterials[];
   productionOrders: ProductionOrder[];
   accounts: Account[];
@@ -81,6 +87,9 @@ export class StorageService {
         const parsed = JSON.parse(saved);
         return {
           ...parsed,
+          projects: parsed.projects || initialProjects,
+          measurements: parsed.measurements || initialMeasurements,
+          purchaseOrders: parsed.purchaseOrders || [],
           isOnline: true,
           isSyncing: false,
         };
@@ -103,6 +112,8 @@ export class StorageService {
       quotations: initialQuotations,
       salesInvoices: initialSalesInvoices,
       purchaseOrders: [],
+      projects: initialProjects,
+      measurements: initialMeasurements,
       boms: initialBOMs,
       productionOrders: initialProductionOrders,
       accounts: initialChartOfAccounts,

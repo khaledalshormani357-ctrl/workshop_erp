@@ -14,6 +14,7 @@ import {
   Quotation,
   SalesInvoice,
   PurchaseOrder,
+  PurchaseOrderLine,
   BillOfMaterials,
   ProductionOrder,
   ProductionStage,
@@ -24,20 +25,32 @@ import {
   AuditLog,
   SyncOutboxItem,
   ClarificationAnswer,
+  Project,
+  MeasurementRecord,
 } from '../types';
 
 import { AppState, StorageService } from '../services/storageService';
 import { AccountingEngine } from '../services/accountingEngine';
+import { BOMEngine } from '../services/bomEngine';
 
 export type ActiveTab =
   | 'dashboard'
-  | 'operations'
+  | 'customers'
+  | 'suppliers'
+  | 'products'
   | 'inventory'
-  | 'accounting'
+  | 'sales'
+  | 'purchases'
+  | 'quotations'
+  | 'projects'
+  | 'measurements'
   | 'manufacturing'
+  | 'accounting'
+  | 'reports'
+  | 'settings'
+  | 'operations'
   | 'sync_architecture'
-  | 'review_gate'
-  | 'settings';
+  | 'review_gate';
 
 interface ERPContextType {
   state: AppState;
@@ -51,7 +64,14 @@ interface ERPContextType {
   triggerSync: () => Promise<void>;
   
   // Business Actions (Atomic with Audit + Outbox + Accounting)
+  createCustomer: (customer: Omit<Customer, 'id' | 'created_at'>) => void;
+  createSupplier: (supplier: Omit<Supplier, 'id' | 'created_at'>) => void;
+  createProduct: (product: Omit<Product, 'id'>) => void;
   createSalesInvoice: (invoice: Omit<SalesInvoice, 'id' | 'created_at' | 'status' | 'invoice_number'>) => void;
+  createPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'created_at' | 'status' | 'po_number'>) => void;
+  createProject: (project: Omit<Project, 'id' | 'created_at' | 'project_code'>) => void;
+  createMeasurement: (meas: Omit<MeasurementRecord, 'id' | 'created_at' | 'tag_number' | 'status'>) => void;
+  convertMeasurementToBOM: (measId: string) => void;
   createStockMovement: (movement: Omit<StockMovement, 'id' | 'created_at' | 'created_by'>) => void;
   updateProductionStage: (orderId: string, nextStage: ProductionStage, notes?: string) => void;
   createJournalEntry: (entry: { reference: string; date: string; lines: JournalEntryLine[]; notes?: string }) => { success: boolean; error?: string };
@@ -660,6 +680,254 @@ export const ERPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }));
   };
 
+  const createCustomer = (customerData: Omit<Customer, 'id' | 'created_at'>) => {
+    const newCust: Customer = {
+      ...customerData,
+      id: `cust-${Date.now().toString().slice(-6)}`,
+      created_at: new Date().toISOString(),
+    };
+    const audit: AuditLog = {
+      id: `log-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      user_name: state.currentUser.name,
+      device_id: 'Android-Device',
+      entity: 'Customer',
+      action: 'CREATE',
+      record_id: newCust.id,
+      details: `Created customer ${newCust.name} (${newCust.phone})`,
+      details_ar: `إضافة عميل جديد ${newCust.name_ar || newCust.name} (${newCust.phone})`,
+      created_at: new Date().toISOString(),
+    };
+    setState((prev) => ({
+      ...prev,
+      customers: [newCust, ...prev.customers],
+      auditLogs: [audit, ...prev.auditLogs],
+    }));
+  };
+
+  const createSupplier = (supplierData: Omit<Supplier, 'id' | 'created_at'>) => {
+    const newSup: Supplier = {
+      ...supplierData,
+      id: `sup-${Date.now().toString().slice(-6)}`,
+      created_at: new Date().toISOString(),
+    };
+    const audit: AuditLog = {
+      id: `log-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      user_name: state.currentUser.name,
+      device_id: 'Android-Device',
+      entity: 'Supplier',
+      action: 'CREATE',
+      record_id: newSup.id,
+      details: `Created supplier ${newSup.name} (${newSup.category})`,
+      details_ar: `إضافة مورد جديد ${newSup.name_ar || newSup.name} (${newSup.category})`,
+      created_at: new Date().toISOString(),
+    };
+    setState((prev) => ({
+      ...prev,
+      suppliers: [newSup, ...prev.suppliers],
+      auditLogs: [audit, ...prev.auditLogs],
+    }));
+  };
+
+  const createProduct = (productData: Omit<Product, 'id'>) => {
+    const newProd: Product = {
+      ...productData,
+      id: `prod-${Date.now().toString().slice(-6)}`,
+    };
+    const audit: AuditLog = {
+      id: `log-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      user_name: state.currentUser.name,
+      device_id: 'Android-Device',
+      entity: 'Product',
+      action: 'CREATE',
+      record_id: newProd.sku,
+      details: `Created product ${newProd.sku} - ${newProd.name}`,
+      details_ar: `إضافة صنف جديد ${newProd.sku} - ${newProd.name_ar || newProd.name}`,
+      created_at: new Date().toISOString(),
+    };
+    setState((prev) => ({
+      ...prev,
+      products: [newProd, ...prev.products],
+      auditLogs: [audit, ...prev.auditLogs],
+    }));
+  };
+
+  const createPurchaseOrder = (poData: Omit<PurchaseOrder, 'id' | 'created_at' | 'status' | 'po_number'>) => {
+    const poNumber = `PO-${new Date().getFullYear()}-${String(state.purchaseOrders.length + 1).padStart(3, '0')}`;
+    const newPO: PurchaseOrder = {
+      ...poData,
+      id: `po-${Date.now().toString().slice(-6)}`,
+      po_number: poNumber,
+      status: 'approved',
+      created_at: new Date().toISOString(),
+    };
+
+    // Create stock receipts for items
+    const movements: StockMovement[] = poData.lines.map((line, idx) => ({
+      id: `sm-po-${Date.now()}-${idx}`,
+      tenant_id: state.tenant.id,
+      product_id: line.product_id,
+      warehouse_id: poData.warehouse_id,
+      type: 'purchase_receipt',
+      quantity: line.quantity,
+      unit_cost: line.unit_cost,
+      direction: 'in',
+      reference_type: 'purchase_order',
+      reference_id: poNumber,
+      notes: `Direct purchase order receipt for ${poNumber}`,
+      created_by: state.currentUser.name,
+      created_at: new Date().toISOString(),
+    }));
+
+    const audit: AuditLog = {
+      id: `log-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      user_name: state.currentUser.name,
+      device_id: 'Android-Device',
+      entity: 'PurchaseOrder',
+      action: 'CREATE',
+      record_id: poNumber,
+      details: `Created purchase order ${poNumber} total ${poData.total_amount} YER`,
+      details_ar: `إنشاء أمر شراء وتوريد مواد ${poNumber} بمبلغ ${poData.total_amount} ر.ي`,
+      created_at: new Date().toISOString(),
+    };
+
+    setState((prev) => ({
+      ...prev,
+      purchaseOrders: [newPO, ...prev.purchaseOrders],
+      stockMovements: [...movements, ...prev.stockMovements],
+      auditLogs: [audit, ...prev.auditLogs],
+    }));
+  };
+
+  const createProject = (projectData: Omit<Project, 'id' | 'created_at' | 'project_code'>) => {
+    const projectCode = `PRJ-${new Date().getFullYear()}-${String(state.projects.length + 1).padStart(3, '0')}`;
+    const newProj: Project = {
+      ...projectData,
+      id: `proj-${Date.now().toString().slice(-6)}`,
+      project_code: projectCode,
+      created_at: new Date().toISOString(),
+    };
+    const audit: AuditLog = {
+      id: `log-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      user_name: state.currentUser.name,
+      device_id: 'Android-Device',
+      entity: 'Project',
+      action: 'CREATE',
+      record_id: projectCode,
+      details: `Created project ${projectCode} - ${newProj.name}`,
+      details_ar: `إنشاء مشروع موقعي جديد ${projectCode} - ${newProj.name_ar || newProj.name}`,
+      created_at: new Date().toISOString(),
+    };
+    setState((prev) => ({
+      ...prev,
+      projects: [newProj, ...prev.projects],
+      auditLogs: [audit, ...prev.auditLogs],
+    }));
+  };
+
+  const createMeasurement = (measData: Omit<MeasurementRecord, 'id' | 'created_at' | 'tag_number' | 'status'>) => {
+    const tagNumber = `M-${String(state.measurements.length + 1).padStart(3, '0')}`;
+    const newMeas: MeasurementRecord = {
+      ...measData,
+      id: `meas-${Date.now().toString().slice(-6)}`,
+      tag_number: tagNumber,
+      status: 'verified',
+      created_at: new Date().toISOString(),
+    };
+    const audit: AuditLog = {
+      id: `log-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      user_name: state.currentUser.name,
+      device_id: 'Android-Tablet-Technician',
+      entity: 'Measurement',
+      action: 'CREATE',
+      record_id: tagNumber,
+      details: `Logged measurement ${tagNumber} (${measData.width}x${measData.height} cm, qty: ${measData.quantity})`,
+      details_ar: `تسجيل مقاس ميداني ${tagNumber} (${measData.width}×${measData.height} سم، الكمية: ${measData.quantity})`,
+      created_at: new Date().toISOString(),
+    };
+    setState((prev) => ({
+      ...prev,
+      measurements: [newMeas, ...prev.measurements],
+      auditLogs: [audit, ...prev.auditLogs],
+    }));
+  };
+
+  const convertMeasurementToBOM = (measId: string) => {
+    const meas = state.measurements.find((m) => m.id === measId);
+    if (!meas) return;
+
+    const cutList = BOMEngine.generateCutListFromMeasurement({
+      width: meas.width,
+      height: meas.height,
+      depth: meas.depth,
+      product_type: meas.product_type,
+      quantity: meas.quantity,
+      color: meas.color,
+      glass_spec: meas.glass_spec,
+    });
+
+    const woNumber = `WO-M-${new Date().getFullYear()}-${String(state.productionOrders.length + 1).padStart(3, '0')}`;
+    const newOrder: ProductionOrder = {
+      id: `wo-meas-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      order_number: woNumber,
+      order_type: 'make-to-order',
+      product_id: 'p-fin-window-sliding-120',
+      bom_id: 'bom-window-sliding-120',
+      customer_id: meas.customer_id,
+      project_id: meas.project_id,
+      quantity: meas.quantity || 1,
+      dimensions: {
+        width: meas.width,
+        height: meas.height,
+        depth: meas.depth,
+        color: meas.color,
+      },
+      due_date: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+      current_stage: 'approved',
+      stages_history: [
+        { stage: 'draft', entered_at: new Date().toISOString(), completed_at: new Date().toISOString() },
+        { stage: 'approved', entered_at: new Date().toISOString(), responsible_employee: state.currentUser.name },
+      ],
+      estimated_material_cost: cutList.reduce((acc, c) => acc + c.lengthCm * 250, 0),
+      actual_material_cost: 0,
+      estimated_labor_cost: 35000 * (meas.quantity || 1),
+      actual_labor_cost: 0,
+      estimated_overhead_cost: 15000,
+      actual_overhead_cost: 0,
+      created_at: new Date().toISOString(),
+    };
+
+    const updatedMeas = state.measurements.map((m) =>
+      m.id === measId ? { ...m, status: 'converted_to_bom' as const } : m
+    );
+
+    const audit: AuditLog = {
+      id: `log-${Date.now()}`,
+      tenant_id: state.tenant.id,
+      user_name: state.currentUser.name,
+      device_id: 'Android-Tablet',
+      entity: 'Measurement',
+      action: 'UPDATE',
+      record_id: meas.tag_number,
+      details: `Converted measurement ${meas.tag_number} into Production Work Order ${woNumber}`,
+      details_ar: `تحويل المقاس ${meas.tag_number} إلى أمر تصنيع وشجرة مواد ${woNumber}`,
+      created_at: new Date().toISOString(),
+    };
+
+    setState((prev) => ({
+      ...prev,
+      measurements: updatedMeas,
+      productionOrders: [newOrder, ...prev.productionOrders],
+      auditLogs: [audit, ...prev.auditLogs],
+    }));
+  };
+
   const approveReviewGate = () => {
     const audit: AuditLog = {
       id: `log-${Date.now()}`,
@@ -709,7 +977,14 @@ export const ERPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setCurrentUserRole,
         toggleOnline,
         triggerSync,
+        createCustomer,
+        createSupplier,
+        createProduct,
         createSalesInvoice,
+        createPurchaseOrder,
+        createProject,
+        createMeasurement,
+        convertMeasurementToBOM,
         createStockMovement,
         updateProductionStage,
         createJournalEntry,

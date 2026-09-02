@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useERP } from '../context/ERPContext';
-import { BOMEngine, CutPiece, OptimizationResult } from '../services/bomEngine';
+import { BOMEngine, CutPiece, OptimizationResult, WorkshopModelType } from '../services/bomEngine';
 import { ProductionStage, ProductionOrder } from '../types';
 import {
   Hammer,
@@ -44,6 +44,7 @@ export const ManufacturingView: React.FC = () => {
   const [selectedTicketOrder, setSelectedTicketOrder] = useState<ProductionOrder | null>(null);
 
   // Parametric BOM Calculator State
+  const [calcModelType, setCalcModelType] = useState<WorkshopModelType>('sliding_window');
   const [calcWidth, setCalcWidth] = useState(120);
   const [calcHeight, setCalcHeight] = useState(120);
   const [calcQuantity, setCalcQuantity] = useState(1);
@@ -51,13 +52,15 @@ export const ManufacturingView: React.FC = () => {
   const [calcTargetMargin, setCalcTargetMargin] = useState(30); // 30% margin
 
   // 1D Cutting Optimizer State
+  const [optModelType, setOptModelType] = useState<WorkshopModelType>('sliding_window');
   const [optStockLength, setOptStockLength] = useState(600); // 600 cm (6.00 meters)
   const [optBladeKerf, setOptBladeKerf] = useState(0.4); // 4mm saw blade kerf
   const [optCuts, setOptCuts] = useState<CutPiece[]>(() =>
-    BOMEngine.generateWindowCutList(120, 140, 3)
+    BOMEngine.generateModelCutList('sliding_window', 120, 140, 3)
   );
 
-  const bomResult = BOMEngine.calculateWindowCost(
+  const bomResult = BOMEngine.calculateModelCost(
+    calcModelType,
     calcWidth,
     calcHeight,
     calcQuantity,
@@ -79,8 +82,8 @@ export const ManufacturingView: React.FC = () => {
     }
   };
 
-  const handleSyncCutListFromDimensions = (w: number, h: number, q: number) => {
-    setOptCuts(BOMEngine.generateWindowCutList(w, h, q));
+  const handleSyncCutListFromDimensions = (model: WorkshopModelType, w: number, h: number, q: number) => {
+    setOptCuts(BOMEngine.generateModelCutList(model, w, h, q));
   };
 
   return (
@@ -266,10 +269,33 @@ export const ManufacturingView: React.FC = () => {
 
               {/* Quick Template Generator */}
               <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
-                <span className="text-xs font-semibold text-slate-300 block">
-                  {lang === 'ar' ? 'توليد المقاسات آلياً لنوافذ وسرايا:' : 'Auto-Generate Cuts from Window:'}
-                </span>
-                <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300 block">
+                    {lang === 'ar' ? 'نوع النموذج والمقاسات:' : 'Model Archetype & Dimensions:'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="col-span-2">
+                    <select
+                      value={optModelType}
+                      onChange={(e) => {
+                        const m = e.target.value as WorkshopModelType;
+                        setOptModelType(m);
+                        const w = Number((document.getElementById('quick-w') as HTMLInputElement)?.value || 120);
+                        const h = Number((document.getElementById('quick-h') as HTMLInputElement)?.value || 140);
+                        const q = Number((document.getElementById('quick-q') as HTMLInputElement)?.value || 3);
+                        handleSyncCutListFromDimensions(m, w, h, q);
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-amber-400 font-semibold focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="sliding_window">{lang === 'ar' ? '🪟 نافذة ألمنيوم سحاب (سرايا دبل)' : 'Sliding Window (Double Glazed)'}</option>
+                      <option value="hinged_window">{lang === 'ar' ? '🪟 نافذة ألمنيوم مفصلي (قلاب/كاسمنت)' : 'Hinged / Casement Window'}</option>
+                      <option value="sliding_door">{lang === 'ar' ? '🚪 باب ألمنيوم سحاب للصالات والبلكونات' : 'Sliding Patio Door'}</option>
+                      <option value="hinged_door">{lang === 'ar' ? '🚪 باب ألمنيوم مفصلي ثقيل مع كباس' : 'Heavy Hinged Door'}</option>
+                      <option value="handrail">{lang === 'ar' ? '🛡️ دربزين ألمنيوم وزجاج سيكوريت' : 'Glass Balustrade / Handrail'}</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="text-[10px] text-slate-400">{lang === 'ar' ? 'العرض سم' : 'W cm'}</label>
                     <input
@@ -288,8 +314,8 @@ export const ManufacturingView: React.FC = () => {
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg p-1.5 text-center text-slate-100 font-mono"
                     />
                   </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400">{lang === 'ar' ? 'العدد' : 'Qty'}</label>
+                  <div className="col-span-2">
+                    <label className="text-[10px] text-slate-400">{lang === 'ar' ? 'العدد المطلوب' : 'Quantity'}</label>
                     <input
                       type="number"
                       defaultValue={3}
@@ -304,11 +330,11 @@ export const ManufacturingView: React.FC = () => {
                     const w = Number((document.getElementById('quick-w') as HTMLInputElement)?.value || 120);
                     const h = Number((document.getElementById('quick-h') as HTMLInputElement)?.value || 140);
                     const q = Number((document.getElementById('quick-q') as HTMLInputElement)?.value || 3);
-                    handleSyncCutListFromDimensions(w, h, q);
+                    handleSyncCutListFromDimensions(optModelType, w, h, q);
                   }}
-                  className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-400 transition border border-slate-700"
+                  className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition shadow-md shadow-amber-500/20"
                 >
-                  {lang === 'ar' ? 'تحديث وتوزيع مقاسات القص' : 'Recalculate Cut Pieces'}
+                  {lang === 'ar' ? 'توليد وتوزيع مقاسات القص آلياً' : 'Generate Model Cut Pieces'}
                 </button>
               </div>
 
@@ -468,6 +494,23 @@ export const ManufacturingView: React.FC = () => {
             </div>
 
             <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {lang === 'ar' ? 'نوع النموذج والمصنعية:' : 'Workshop Model Archetype:'}
+                </label>
+                <select
+                  value={calcModelType}
+                  onChange={(e) => setCalcModelType(e.target.value as WorkshopModelType)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-amber-400 font-bold focus:outline-none focus:border-amber-500"
+                >
+                  <option value="sliding_window">{lang === 'ar' ? '🪟 نافذة ألمنيوم سحاب (سرايا دبل جلاس)' : 'Sliding Window (Double Glazed)'}</option>
+                  <option value="hinged_window">{lang === 'ar' ? '🪟 نافذة ألمنيوم مفصلي (كاسمنت)' : 'Hinged / Casement Window'}</option>
+                  <option value="sliding_door">{lang === 'ar' ? '🚪 باب ألمنيوم سحاب للصالات والبلكونات' : 'Sliding Patio Door'}</option>
+                  <option value="hinged_door">{lang === 'ar' ? '🚪 باب ألمنيوم مفصلي ثقيل مع كباس' : 'Heavy Hinged Door'}</option>
+                  <option value="handrail">{lang === 'ar' ? '🛡️ دربزين ألمنيوم وزجاج سيكوريت' : 'Glass Balustrade / Handrail'}</option>
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">

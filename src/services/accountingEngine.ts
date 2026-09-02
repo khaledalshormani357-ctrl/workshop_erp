@@ -71,7 +71,7 @@ export class AccountingEngine {
       }
       return {
         ...acc,
-        balance: Math.max(0, netMovement), // or raw net
+        balance: netMovement,
       };
     });
   }

@@ -563,6 +563,29 @@ export class DatabaseService {
         deleted_at TEXT
       );`,
 
+      `CREATE TABLE IF NOT EXISTS production_order_stages (
+        id TEXT PRIMARY KEY NOT NULL,
+        tenant_id TEXT NOT NULL,
+        production_order_id TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'in_progress',
+        entered_at TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL
+      );`,
+
+      `CREATE TABLE IF NOT EXISTS production_order_materials (
+        id TEXT PRIMARY KEY NOT NULL,
+        tenant_id TEXT NOT NULL,
+        production_order_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit_cost REAL NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        issued_at TEXT NOT NULL,
+        notes TEXT
+      );`,
+
       `CREATE TABLE IF NOT EXISTS employees (
         id TEXT PRIMARY KEY NOT NULL,
         tenant_id TEXT NOT NULL,
